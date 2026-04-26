@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod net;
 mod util;
 
 use clap::Parser;
@@ -7,7 +8,8 @@ use cli::{Cli, Command, RouteCommand};
 use color_eyre::eyre::ContextCompat;
 use config::{Config, ConnectRoute, ForwardRoute};
 use std::{collections::HashSet, path::PathBuf};
-use tokio::fs;
+use tokio::{fs, select, signal};
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -27,7 +29,26 @@ async fn main() -> color_eyre::Result<()> {
     let mut config = Config::load(cli.config.as_ref()).await?;
 
     match cli.command {
-        Command::Daemon => {}
+        Command::Daemon => {
+            let cancel = CancellationToken::new();
+
+            tracing::info!(
+                "Starting daemon, public key {}",
+                config.key().context("Invalid identity")?.public()
+            );
+
+            let signal = signal::ctrl_c();
+            let task = net::task(config, cancel.child_token());
+
+            select! {
+                exit_res = signal => exit_res?,
+                task_res = task => task_res?
+            }
+
+            tracing::info!("Quitting...");
+
+            cancel.cancel();
+        }
         Command::Route { command } => match command {
             RouteCommand::Add { ticket } => {
                 let r = match config.connect.take() {
