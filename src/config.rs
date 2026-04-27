@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, env, net::SocketAddr, path::Path, str::FromStr};
 use tokio::{fs, io};
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct ForwardRoute {
+    pub id: [u8; 32],
     pub address: SocketAddr,
     pub tcp: Option<bool>,
     pub udp: Option<bool>,
@@ -14,7 +15,8 @@ pub struct ForwardRoute {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct ConnectRoute {
-    pub id: PublicKey,
+    pub id: [u8; 32],
+    pub public_key: PublicKey,
     pub address: SocketAddr,
     pub auth: Option<String>,
 }

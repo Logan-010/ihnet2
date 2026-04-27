@@ -1685,6 +1685,7 @@ dependencies = [
  "color-eyre",
  "iroh",
  "postcard",
+ "rand",
  "serde",
  "serde_json",
  "tokio",
