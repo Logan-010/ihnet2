@@ -1,19 +1,30 @@
 use crate::{
-    config::{Config, ForwardRoute},
-    net::ALPN,
+    config::{Config, ConnectRoute, ForwardRoute},
+    net::{
+        ALPN,
+        types::{
+            AUTH_HEADER, BUFFER_SIZE, HANDSHAKE, HEADER_SIZE, PUBL_HEADER, TCP_HEADER, UDP_HEADER,
+        },
+    },
 };
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
     password_hash::{SaltString, rand_core::OsRng},
 };
-use color_eyre::eyre::ContextCompat;
+use color_eyre::eyre::{ContextCompat, bail};
 use iroh::{
     Endpoint,
     address_lookup::MdnsAddressLookup,
     endpoint::{Connection, VarInt, presets},
 };
-use std::collections::HashMap;
-use tokio::{select, sync::mpsc, task};
+use std::{collections::HashMap, future, net::SocketAddr};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpStream, UdpSocket},
+    select,
+    sync::mpsc,
+    task,
+};
 use tokio_util::sync::CancellationToken;
 
 pub async fn task(config: Config, cancel: CancellationToken) -> color_eyre::Result<()> {
@@ -31,7 +42,19 @@ pub async fn task(config: Config, cancel: CancellationToken) -> color_eyre::Resu
     .await?;
 
     if let Some(routes) = config.connect {
-        for route in routes {}
+        for route in routes {
+            let e = endpoint.clone();
+            let ct = cancel.child_token();
+
+            task::spawn(async move {
+                select! {
+                    _ = ct.cancelled() => {},
+                    connect_res = connect(route, e) => if let Err(e) = connect_res {
+                        tracing::warn!("Route connection failed: {}", e);
+                    }
+                }
+            });
+        }
     }
 
     let mut routing = HashMap::new();
@@ -61,6 +84,34 @@ pub async fn task(config: Config, cancel: CancellationToken) -> color_eyre::Resu
             tracing::error!("Endpoint failure: {}", e);
         }
     }
+
+    Ok(())
+}
+
+async fn connect(route: ConnectRoute, endpoint: Endpoint) -> color_eyre::Result<()> {
+    let conn = endpoint.connect(route.public_key, ALPN).await?;
+
+    let mut auth_rx = conn.accept_uni().await?;
+
+    let mut auth_code = [0u8; 4];
+    auth_rx.read(&mut auth_code).await?;
+
+    if auth_code == AUTH_HEADER {
+        let password = route.auth.context("Endpoint requires auth")?;
+
+        let mut tx = conn.open_uni().await?;
+
+        tx.write_all(&(password.len() as u32).to_be_bytes()).await?;
+        tx.write_all(password.as_bytes()).await?;
+
+        tx.finish()?;
+    } else if auth_code == PUBL_HEADER {
+        // All good, endpoint does not require auth!
+    } else {
+        bail!("Unknown auth code");
+    }
+
+    // Connect local sockets and forward to/from stream
 
     Ok(())
 }
@@ -116,7 +167,11 @@ async fn routing_handler(
         };
 
         if let Some(hash) = auth_hash.as_ref() {
-            if tx.write_all(b"AUTH").await.is_err() {
+            if tx.write_all(AUTH_HEADER).await.is_err() {
+                continue;
+            }
+
+            if tx.finish().is_err() {
                 continue;
             }
 
@@ -125,13 +180,13 @@ async fn routing_handler(
                 continue;
             }
         } else {
-            if tx.write_all(b"PUBL").await.is_err() {
+            if tx.write_all(PUBL_HEADER).await.is_err() {
                 continue;
             }
-        }
 
-        if tx.finish().is_err() {
-            continue;
+            if tx.finish().is_err() {
+                continue;
+            }
         }
 
         let ct = cancel.child_token();
@@ -164,5 +219,96 @@ async fn authenticate(conn: &Connection, hash: &PasswordHash<'_>) -> color_eyre:
 }
 
 async fn forward(route: ForwardRoute, conn: Connection) -> color_eyre::Result<()> {
+    let udp_socket = match route.udp.unwrap_or(true) {
+        true => {
+            let socket =
+                UdpSocket::bind("0.0.0.0:0".parse::<SocketAddr>().expect("Valid address")).await?;
+            socket.connect(route.address).await?;
+
+            Some(socket)
+        }
+        false => None,
+    };
+    let mut tcp_socket = match route.tcp.unwrap_or(true) {
+        true => Some(TcpStream::connect(route.address).await?),
+        false => None,
+    };
+
+    let (mut tx, mut rx) = conn.accept_bi().await?;
+
+    tx.write_all(HANDSHAKE).await?;
+    let mut handshake = [0u8; HANDSHAKE.len()];
+    rx.read_exact(&mut handshake).await?;
+    if handshake != HANDSHAKE {
+        bail!("Invalid handshake");
+    }
+
+    let mut tx_tcp_buf = [0u8; BUFFER_SIZE];
+    let mut tx_udp_buf = [0u8; BUFFER_SIZE];
+    let mut rx_buf = [0u8; HEADER_SIZE + BUFFER_SIZE];
+
+    loop {
+        tokio::select! {
+            // UDP packet
+            Ok(n) = async {
+                if let Some(sock) = udp_socket.as_ref() {
+                    sock.recv(&mut tx_udp_buf).await
+                } else {
+                    future::pending().await
+                }
+            } => {
+                if n == 0 {
+                    break;
+                }
+
+                tx.write_all(UDP_HEADER).await?;
+                tx.write_all(&tx_udp_buf[..n]).await?;
+            },
+            // TCP packet
+            Ok(n) = async {
+                if let Some(sock) = tcp_socket.as_mut() {
+                    sock.read(&mut tx_tcp_buf).await
+                } else {
+                    future::pending().await
+                }
+            } => {
+                if n == 0 {
+                    break;
+                }
+
+                tx.write_all(TCP_HEADER).await?;
+                tx.write_all(&tx_tcp_buf[..n]).await?;
+            },
+            // Stream packet
+            Ok(n_res) = rx.read(&mut rx_buf) => {
+                let n = n_res.unwrap_or(0);
+
+                if n == 0 {
+                    break;
+                }
+
+                if n < HEADER_SIZE {
+                    bail!("Read too short");
+                }
+
+                if &rx_buf[..HEADER_SIZE] == TCP_HEADER {
+                    if let Some(sock) = tcp_socket.as_mut() {
+                        sock.write_all(&rx_buf[HEADER_SIZE..n]).await?;
+                    } else {
+                        bail!("TCP packet with no TCP enabled");
+                    }
+                } else if &rx_buf[..HEADER_SIZE] == UDP_HEADER {
+                    if let Some(sock) = udp_socket.as_ref() {
+                        sock.send(&rx_buf[HEADER_SIZE..n]).await?;
+                    } else {
+                        bail!("UDP packet with no UDP enabled");
+                    }
+                } else {
+                    bail!("Invalid header");
+                }
+            }
+        }
+    }
+
     Ok(())
 }
