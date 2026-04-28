@@ -50,7 +50,12 @@ async fn main() -> color_eyre::Result<()> {
             cancel.cancel();
         }
         Command::Route { command } => match command {
-            RouteCommand::Add { ticket } => {
+            RouteCommand::Add {
+                mut ticket,
+                address,
+            } => {
+                ticket.address = address;
+
                 let r = match config.connect.take() {
                     Some(mut routes) => {
                         routes.insert(ticket);
@@ -85,7 +90,9 @@ async fn main() -> color_eyre::Result<()> {
                 let connect = ConnectRoute {
                     id: forward.id,
                     public_key: config.key().context("Invalid identity")?.public(),
-                    address: "127.0.0.1:0".parse().expect("Valid address"),
+                    address: None,
+                    tcp: forward.tcp,
+                    udp: forward.udp,
                     auth,
                 };
 
@@ -113,9 +120,10 @@ async fn main() -> color_eyre::Result<()> {
                     copy,
                 );
             }
-            RouteCommand::Import { path } => {
+            RouteCommand::Import { path, address } => {
                 let data = fs::read(path).await?;
-                let route = ConnectRoute::decode(data)?;
+                let mut route = ConnectRoute::decode(data)?;
+                route.address = address;
 
                 let r = match config.connect.take() {
                     Some(mut routes) => {
@@ -151,7 +159,9 @@ async fn main() -> color_eyre::Result<()> {
                 let connect = ConnectRoute {
                     id: forward.id,
                     public_key: config.key().context("Invalid identity")?.public(),
-                    address: "127.0.0.1:0".parse().expect("Valid address"),
+                    address: None,
+                    tcp: forward.tcp,
+                    udp: forward.udp,
                     auth,
                 };
 

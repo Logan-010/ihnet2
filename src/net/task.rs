@@ -17,12 +17,12 @@ use iroh::{
     address_lookup::MdnsAddressLookup,
     endpoint::{Connection, VarInt, presets},
 };
-use std::{collections::HashMap, future, net::SocketAddr};
+use std::{collections::HashMap, future, net::SocketAddr, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, UdpSocket},
     select,
-    sync::mpsc,
+    sync::{RwLock, mpsc},
     task,
 };
 use tokio_util::sync::CancellationToken;
@@ -113,7 +113,89 @@ async fn connect(route: ConnectRoute, endpoint: Endpoint) -> color_eyre::Result<
 
     // Connect local sockets and forward to/from stream
 
-    Ok(())
+    let udp_socket = match route.udp.unwrap_or(true) {
+        true => {
+            let socket =
+                UdpSocket::bind(route.address.unwrap_or("127.0.0.1:0".parse().unwrap())).await?;
+
+            Some(socket)
+        }
+        false => None,
+    };
+    let mut tcp_socket = match route.tcp.unwrap_or(true) {
+        true => {
+            Some(TcpStream::connect(route.address.unwrap_or("127.0.0.1:0".parse().unwrap())).await?)
+        }
+        false => None,
+    };
+
+    let mut tx_tcp_buf = [0u8; BUFFER_SIZE];
+    let mut tx_udp_buf = [0u8; BUFFER_SIZE];
+    let mut rx_buf = [0u8; HEADER_SIZE + BUFFER_SIZE];
+
+    let addresses = Arc::new(RwLock::new(Vec::new()));
+
+    let (mut tx, mut rx) = conn.open_bi().await?;
+
+    let mut handshake = [0u8; HANDSHAKE.len()];
+    rx.read_exact(&mut handshake).await?;
+    if handshake != HANDSHAKE {
+        bail!("Invalid handshake");
+    }
+    tx.write_all(HANDSHAKE).await?;
+
+    loop {
+        select! {
+            // UDP packet
+            Ok((n, from)) = async {
+                match udp_socket.as_ref() {
+                    Some(sock) => {
+                        sock.recv_from(&mut tx_udp_buf).await
+                    },
+                    None => future::pending().await
+                }
+            } => {
+                addresses.write().await.push(from);
+
+                tx.write_all(UDP_HEADER).await?;
+                tx.write_all(&(n as u32).to_be_bytes()).await?;
+                tx.write_all(&tx_udp_buf[..n]).await?;
+            },
+            // TCP packet
+            Ok(n) = async {
+                match tcp_socket.as_mut() {
+                    Some(sock) => {
+                        sock.read(&mut tx_tcp_buf).await
+                    },
+                    None => future::pending().await
+                }
+            } => {
+                tx.write_all(TCP_HEADER).await?;
+                tx.write_all(&(n as u32).to_be_bytes()).await?;
+                tx.write_all(&tx_tcp_buf[..n]).await?;
+            }
+            // Stream packet
+            Ok(_) = rx.read_exact(&mut rx_buf[..HEADER_SIZE]) => {
+                let mut length_bytes = [0u8; 4];
+                rx.read_exact(&mut length_bytes).await?;
+                let length = u32::from_be_bytes(length_bytes) as usize;
+                if length > BUFFER_SIZE {
+                    bail!("Read too big");
+                }
+                rx.read_exact(&mut rx_buf[HEADER_SIZE..HEADER_SIZE + length]).await?;
+
+                if &rx_buf[..HEADER_SIZE] == TCP_HEADER &&
+                        let Some(sock) = tcp_socket.as_mut() {
+                    sock.write_all(&rx_buf[HEADER_SIZE..HEADER_SIZE + length]).await?;
+                } else if &rx_buf[..HEADER_SIZE] == UDP_HEADER &&
+                        let Some(sock) = udp_socket.as_ref() {
+                    for addr in addresses.read().await.iter() {
+                        sock.send_to(&rx_buf[HEADER_SIZE..HEADER_SIZE + length], addr).await?;
+                    }
+                }
+            }
+        }
+    }
 }
 
 async fn endpoint_loop(
@@ -221,8 +303,12 @@ async fn authenticate(conn: &Connection, hash: &PasswordHash<'_>) -> color_eyre:
 async fn forward(route: ForwardRoute, conn: Connection) -> color_eyre::Result<()> {
     let udp_socket = match route.udp.unwrap_or(true) {
         true => {
-            let socket =
-                UdpSocket::bind("0.0.0.0:0".parse::<SocketAddr>().expect("Valid address")).await?;
+            let socket = UdpSocket::bind(if route.address.is_ipv4() {
+                "127.0.0.1:0".parse::<SocketAddr>().expect("Valid address")
+            } else {
+                "[::1]:0".parse::<SocketAddr>().expect("Valid address")
+            })
+            .await?;
             socket.connect(route.address).await?;
 
             Some(socket)
@@ -280,26 +366,25 @@ async fn forward(route: ForwardRoute, conn: Connection) -> color_eyre::Result<()
                 tx.write_all(&tx_tcp_buf[..n]).await?;
             },
             // Stream packet
-            Ok(n_res) = rx.read(&mut rx_buf) => {
-                let n = n_res.unwrap_or(0);
-
-                if n == 0 {
-                    break;
+            Ok(_) = rx.read_exact(&mut rx_buf[..HEADER_SIZE]) => {
+                let mut length_bytes = [0u8; 4];
+                rx.read_exact(&mut length_bytes).await?;
+                let length = u32::from_be_bytes(length_bytes) as usize;
+                if length > BUFFER_SIZE {
+                    bail!("Read too big");
                 }
-
-                if n < HEADER_SIZE {
-                    bail!("Read too short");
-                }
+                rx.read_exact(&mut rx_buf[HEADER_SIZE..HEADER_SIZE + length]).await?;
 
                 if &rx_buf[..HEADER_SIZE] == TCP_HEADER {
                     if let Some(sock) = tcp_socket.as_mut() {
-                        sock.write_all(&rx_buf[HEADER_SIZE..n]).await?;
+
+                        sock.write_all(&rx_buf[HEADER_SIZE..HEADER_SIZE + length]).await?;
                     } else {
                         bail!("TCP packet with no TCP enabled");
                     }
                 } else if &rx_buf[..HEADER_SIZE] == UDP_HEADER {
                     if let Some(sock) = udp_socket.as_ref() {
-                        sock.send(&rx_buf[HEADER_SIZE..n]).await?;
+                        sock.send(&rx_buf[HEADER_SIZE..HEADER_SIZE + length]).await?;
                     } else {
                         bail!("UDP packet with no UDP enabled");
                     }

@@ -37,6 +37,9 @@ pub enum RouteCommand {
     Add {
         /// Encoded route
         ticket: ConnectRoute,
+
+        /// Address to listen on
+        address: Option<SocketAddr>,
     },
     /// Create a route
     Create {
@@ -63,6 +66,9 @@ pub enum RouteCommand {
     Import {
         /// Path to route file
         path: PathBuf,
+
+        /// Address to listen on
+        address: Option<SocketAddr>,
     },
     /// Export a route
     Export {

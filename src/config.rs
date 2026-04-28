@@ -17,7 +17,9 @@ pub struct ForwardRoute {
 pub struct ConnectRoute {
     pub id: [u8; 32],
     pub public_key: PublicKey,
-    pub address: SocketAddr,
+    pub tcp: Option<bool>,
+    pub udp: Option<bool>,
+    pub address: Option<SocketAddr>,
     pub auth: Option<String>,
 }
 
