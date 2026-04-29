@@ -55,7 +55,6 @@ async fn main() -> color_eyre::Result<()> {
                 address,
             } => {
                 ticket.address = address;
-
                 let r = match config.connect.take() {
                     Some(mut routes) => {
                         routes.insert(ticket);
@@ -67,7 +66,6 @@ async fn main() -> color_eyre::Result<()> {
                         routes
                     }
                 };
-
                 config.connect = Some(r);
 
                 config.save(cli.config.as_ref()).await?
@@ -81,6 +79,7 @@ async fn main() -> color_eyre::Result<()> {
             } => {
                 let id: [u8; 32] = rand::random();
                 let id_str = hex::encode(id);
+
                 let forward = ForwardRoute {
                     id: id_str,
                     address,
@@ -111,7 +110,6 @@ async fn main() -> color_eyre::Result<()> {
                 };
 
                 config.forward = Some(r);
-
                 config.save(cli.config.as_ref()).await?;
 
                 util::display_and_copy(
@@ -125,8 +123,8 @@ async fn main() -> color_eyre::Result<()> {
             RouteCommand::Import { path, address } => {
                 let data = fs::read(path).await?;
                 let mut route = ConnectRoute::decode(data)?;
-                route.address = address;
 
+                route.address = address;
                 let r = match config.connect.take() {
                     Some(mut routes) => {
                         routes.insert(route);
@@ -138,7 +136,6 @@ async fn main() -> color_eyre::Result<()> {
                         routes
                     }
                 };
-
                 config.connect = Some(r);
 
                 config.save(cli.config.as_ref()).await?
@@ -152,6 +149,7 @@ async fn main() -> color_eyre::Result<()> {
             } => {
                 let id: [u8; 32] = rand::random();
                 let id_str = hex::encode(id);
+
                 let forward = ForwardRoute {
                     id: id_str,
                     address,
@@ -182,12 +180,10 @@ async fn main() -> color_eyre::Result<()> {
                 };
 
                 config.forward = Some(r);
-
                 config.save(cli.config.as_ref()).await?;
 
                 let path = to.unwrap_or_else(|| PathBuf::from("route.json"));
                 let data = connect.encode()?;
-
                 fs::write(path, data).await?;
             }
         },
