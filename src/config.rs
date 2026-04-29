@@ -6,7 +6,7 @@ use tokio::{fs, io};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct ForwardRoute {
-    pub id: [u8; 32],
+    pub id: String,
     pub address: SocketAddr,
     pub tcp: Option<bool>,
     pub udp: Option<bool>,
@@ -15,7 +15,7 @@ pub struct ForwardRoute {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct ConnectRoute {
-    pub id: [u8; 32],
+    pub id: String,
     pub public_key: PublicKey,
     pub tcp: Option<bool>,
     pub udp: Option<bool>,
@@ -88,7 +88,7 @@ impl Config {
             Some(v) => v.as_ref().to_path_buf(),
             None => env::home_dir()
                 .ok_or_else(|| io::Error::other("Failed to get home directory"))?
-                .join(".ihnet")
+                .join(".ihnet2")
                 .join("config.json"),
         };
 
@@ -120,7 +120,7 @@ impl Config {
             Some(v) => v.as_ref().to_path_buf(),
             None => env::home_dir()
                 .ok_or_else(|| io::Error::other("Failed to get home directory"))?
-                .join(".ihnet")
+                .join(".ihnet2")
                 .join("config.json"),
         };
 

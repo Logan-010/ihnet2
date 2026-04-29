@@ -79,8 +79,10 @@ async fn main() -> color_eyre::Result<()> {
                 auth,
                 copy,
             } => {
+                let id: [u8; 32] = rand::random();
+                let id_str = hex::encode(id);
                 let forward = ForwardRoute {
-                    id: rand::random(),
+                    id: id_str,
                     address,
                     tcp: if no_tcp { Some(false) } else { None },
                     udp: if no_udp { Some(false) } else { None },
@@ -88,7 +90,7 @@ async fn main() -> color_eyre::Result<()> {
                 };
 
                 let connect = ConnectRoute {
-                    id: forward.id,
+                    id: forward.id.clone(),
                     public_key: config.key().context("Invalid identity")?.public(),
                     address: None,
                     tcp: forward.tcp,
@@ -148,8 +150,10 @@ async fn main() -> color_eyre::Result<()> {
                 auth,
                 to,
             } => {
+                let id: [u8; 32] = rand::random();
+                let id_str = hex::encode(id);
                 let forward = ForwardRoute {
-                    id: rand::random(),
+                    id: id_str,
                     address,
                     tcp: if no_tcp { Some(false) } else { None },
                     udp: if no_udp { Some(false) } else { None },
@@ -157,7 +161,7 @@ async fn main() -> color_eyre::Result<()> {
                 };
 
                 let connect = ConnectRoute {
-                    id: forward.id,
+                    id: forward.id.clone(),
                     public_key: config.key().context("Invalid identity")?.public(),
                     address: None,
                     tcp: forward.tcp,
