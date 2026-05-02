@@ -1,12 +1,16 @@
 # IHNET2
 
 Complete rewrite of my original [ihnet](https://github.com/Logan-010/ihnet) tool
-that fixes many bugs and other problems.
+that fixes bugs and improves on many shortcomings.
 
-New & improved CLI & routes system, along with stream multiplexing and general
-performance improvements.
+New and improved CLI & routes system (forward multiple ports on one running
+process using one identity!), along with stream multiplexing (many UDP
+connections over one channel!) and general performance improvements.
 
 # What?
 
 `IHNET2` is a simple, fast, and secure (UDP, TCP, or both!) port forwarder that
 allows one computer to connect to another even behind a NAT & a private IP.
+
+Supports secure authentication (Argon2id based key-derivation) so not just
+anyone can connect to your ports.
