@@ -1,5 +1,6 @@
 use crate::config::ConnectRoute;
 use clap::{Parser, Subcommand};
+use iroh::RelayUrl;
 use std::{net::SocketAddr, path::PathBuf};
 
 #[derive(Parser)]
@@ -11,6 +12,14 @@ pub struct Cli {
     /// Sets custom log level for application
     #[arg(long, short = 'l', env = "RUST_LOG", default_value_t = String::from("ihnet2=info"))]
     pub logging: String,
+
+    /// Custom relay url
+    #[arg(long, short, env = "IHNET2_RELAY")]
+    pub relay: Option<RelayUrl>,
+
+    /// Custom listen address
+    #[arg(long, short, env = "IHNET2_ADDRESS")]
+    pub address: Option<SocketAddr>,
 
     /// Custom config directory
     #[arg(long, short = 'c', env = "IHNET2_CONFIG")]

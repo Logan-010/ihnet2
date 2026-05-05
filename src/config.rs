@@ -1,5 +1,5 @@
 use base64::{Engine, prelude::BASE64_STANDARD};
-use iroh::{PublicKey, SecretKey};
+use iroh::{PublicKey, RelayUrl, SecretKey};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, env, net::SocketAddr, path::Path, str::FromStr};
 use tokio::{fs, io};
@@ -53,6 +53,8 @@ impl FromStr for ConnectRoute {
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     identity: String,
+    pub address: Option<SocketAddr>,
+    pub relay: Option<RelayUrl>,
     pub local_only: Option<bool>,
     pub forward: Option<HashSet<ForwardRoute>>,
     pub connect: Option<HashSet<ConnectRoute>>,
@@ -65,6 +67,8 @@ impl Config {
 
         Self {
             identity,
+            address: None,
+            relay: None,
             local_only: None,
             forward: None,
             connect: None,

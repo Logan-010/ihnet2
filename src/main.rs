@@ -27,6 +27,8 @@ async fn main() -> color_eyre::Result<()> {
     }
 
     let mut config = Config::load(cli.config.as_ref()).await?;
+    config.relay = config.relay.or(cli.relay);
+    config.address = config.address.or(cli.address);
 
     match cli.command {
         Command::Daemon => {

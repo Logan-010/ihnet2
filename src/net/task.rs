@@ -13,7 +13,7 @@ use argon2::{
 };
 use color_eyre::eyre::{Context, ContextCompat, bail};
 use iroh::{
-    Endpoint,
+    Endpoint, RelayMode,
     address_lookup::MdnsAddressLookup,
     endpoint::{Connection, presets},
 };
@@ -34,16 +34,23 @@ use tokio_util::sync::CancellationToken;
 pub async fn task(config: Config, cancel: CancellationToken) -> color_eyre::Result<()> {
     let key = config.key().context("Invalid identity")?;
 
-    let endpoint = if config.local_only.unwrap_or(false) {
+    let mut endpoint_builder = if config.local_only.unwrap_or(false) {
         Endpoint::builder(presets::Empty)
     } else {
         Endpoint::builder(presets::N0)
+    };
+    endpoint_builder = endpoint_builder
+        .address_lookup(MdnsAddressLookup::builder().build(key.public())?)
+        .alpns(vec![ALPN.to_vec()])
+        .secret_key(key)
+        .relay_mode(match config.relay {
+            Some(url) => RelayMode::Custom(url.into()),
+            None => RelayMode::Default,
+        });
+    if let Some(addr) = config.address {
+        endpoint_builder = endpoint_builder.bind_addr(addr)?;
     }
-    .address_lookup(MdnsAddressLookup::builder().build(key.public())?)
-    .alpns(vec![ALPN.to_vec()])
-    .secret_key(key)
-    .bind()
-    .await?;
+    let endpoint = endpoint_builder.bind().await?;
 
     if let Some(routes) = config.connect {
         for route in routes {
