@@ -16,6 +16,7 @@ pub struct ForwardRoute {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct ConnectRoute {
     pub id: String,
+    pub name: Option<String>,
     pub public_key: PublicKey,
     pub tcp: Option<bool>,
     pub udp: Option<bool>,

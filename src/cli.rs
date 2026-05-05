@@ -39,7 +39,12 @@ pub enum RouteCommand {
         ticket: ConnectRoute,
 
         /// Address to listen on
+        #[arg(long, short)]
         address: Option<SocketAddr>,
+
+        /// Path name
+        #[arg(long, short)]
+        name: Option<String>,
     },
     /// Create a route
     Create {
@@ -68,7 +73,12 @@ pub enum RouteCommand {
         path: PathBuf,
 
         /// Address to listen on
+        #[arg(long, short)]
         address: Option<SocketAddr>,
+
+        /// Path name
+        #[arg(long, short)]
+        name: Option<String>,
     },
     /// Export a route
     Export {

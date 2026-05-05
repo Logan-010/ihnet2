@@ -53,8 +53,10 @@ async fn main() -> color_eyre::Result<()> {
             RouteCommand::Add {
                 mut ticket,
                 address,
+                name,
             } => {
                 ticket.address = address;
+                ticket.name = name;
                 let r = match config.connect.take() {
                     Some(mut routes) => {
                         routes.insert(ticket);
@@ -90,6 +92,7 @@ async fn main() -> color_eyre::Result<()> {
 
                 let connect = ConnectRoute {
                     id: forward.id.clone(),
+                    name: None,
                     public_key: config.key().context("Invalid identity")?.public(),
                     address: None,
                     tcp: forward.tcp,
@@ -120,10 +123,15 @@ async fn main() -> color_eyre::Result<()> {
                     copy,
                 );
             }
-            RouteCommand::Import { path, address } => {
+            RouteCommand::Import {
+                path,
+                address,
+                name,
+            } => {
                 let data = fs::read(path).await?;
                 let mut route = ConnectRoute::decode(data)?;
 
+                route.name = name;
                 route.address = address;
                 let r = match config.connect.take() {
                     Some(mut routes) => {
@@ -160,6 +168,7 @@ async fn main() -> color_eyre::Result<()> {
 
                 let connect = ConnectRoute {
                     id: forward.id.clone(),
+                    name: None,
                     public_key: config.key().context("Invalid identity")?.public(),
                     address: None,
                     tcp: forward.tcp,

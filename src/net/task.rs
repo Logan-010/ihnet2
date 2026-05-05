@@ -52,11 +52,14 @@ pub async fn task(config: Config, cancel: CancellationToken) -> color_eyre::Resu
             let ct2 = ct.child_token();
 
             task::spawn(async move {
-                select! {
-                    _ = ct.cancelled() => {},
-                    connect_res = connect(route, e, ct2.clone()) => if let Err(e) = connect_res {
-                        tracing::warn!("Route connection failed: {}", e);
-                        ct2.cancel();
+                loop {
+                    let t = ct.clone();
+                    select! {
+                        _ = t.cancelled() => break,
+                        connect_res = connect(route.clone(), e.clone(), ct2.clone()) => if let Err(e) = connect_res {
+                            tracing::warn!("Route connection failed: {}", e);
+                            ct2.cancel();
+                        }
                     }
                 }
             });
@@ -145,7 +148,8 @@ async fn connect(
             TcpListener::bind(route.address.unwrap_or("127.0.0.1:0".parse().unwrap())).await?;
 
         tracing::info!(
-            "Route {} listening on TCP address \"{}\"",
+            "Route \"{}\" ({}) listening on TCP address \"{}\"",
+            route.name.as_deref().unwrap_or("unnamed"),
             route.id,
             socket.local_addr()?
         );
@@ -169,7 +173,8 @@ async fn connect(
             UdpSocket::bind(route.address.unwrap_or("127.0.0.1:0".parse().unwrap())).await?;
 
         tracing::info!(
-            "Route {} listening on UDP address \"{}\"",
+            "Route \"{}\" ({}) listening on UDP address \"{}\"",
+            route.name.as_deref().unwrap_or("unnamed"),
             route.id,
             socket.local_addr()?
         );
