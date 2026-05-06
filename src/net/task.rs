@@ -21,6 +21,7 @@ use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
     net::SocketAddr,
+    time::Duration,
 };
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
@@ -28,6 +29,7 @@ use tokio::{
     select,
     sync::mpsc,
     task,
+    time,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -59,14 +61,10 @@ pub async fn task(config: Config, cancel: CancellationToken) -> color_eyre::Resu
             let ct2 = ct.child_token();
 
             task::spawn(async move {
-                loop {
-                    let t = ct.clone();
-                    select! {
-                        _ = t.cancelled() => break,
-                        connect_res = connect(route.clone(), e.clone(), ct2.clone()) => if let Err(e) = connect_res {
-                            tracing::warn!("Route connection failed: {}", e);
-                            ct2.cancel();
-                        }
+                select! {
+                    _ = ct.cancelled() => {},
+                    connect_res = connect(route, e, ct2) => if let Err(e) = connect_res {
+                        tracing::warn!("Route connection failed: {}", e);
                     }
                 }
             });
@@ -117,7 +115,36 @@ async fn connect(
     endpoint: Endpoint,
     cancel: CancellationToken,
 ) -> color_eyre::Result<()> {
-    let conn = endpoint.connect(route.public_key, ALPN).await?;
+    let max_attempts = route.retry_max_attempts.unwrap_or(3);
+    let initial_delay = Duration::from_millis(route.retry_initial_delay_ms.unwrap_or(1000));
+    let max_delay = Duration::from_millis(route.retry_max_delay_ms.unwrap_or(30000));
+
+    let mut attempts = 0;
+    let conn = loop {
+        match endpoint.connect(route.public_key, ALPN).await {
+            Ok(conn) => break conn,
+            Err(e) => {
+                attempts += 1;
+                if attempts >= max_attempts {
+                    bail!("Failed to connect after {} attempts: {}", max_attempts, e);
+                }
+
+                let delay = initial_delay.mul_f32(2.0_f32.powi(attempts as i32 - 1)).min(max_delay);
+                tracing::warn!(
+                    "Connection failed (attempt {}/{}): {}, retrying in {:?}",
+                    attempts,
+                    max_attempts,
+                    e,
+                    delay
+                );
+
+                select! {
+                    _ = cancel.cancelled() => bail!("Connection cancelled"),
+                    _ = time::sleep(delay) => {}
+                }
+            }
+        }
+    };
 
     let id = hex::decode(&route.id)?;
     if id.len() != 32 {

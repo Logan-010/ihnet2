@@ -36,7 +36,7 @@ pub enum Command {
     /// Configure connections
     Route {
         #[clap(subcommand)]
-        command: RouteCommand,
+        command: Box<RouteCommand>,
     },
 }
 
