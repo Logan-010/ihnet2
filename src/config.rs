@@ -22,9 +22,6 @@ pub struct ConnectRoute {
     pub udp: Option<bool>,
     pub address: Option<SocketAddr>,
     pub auth: Option<String>,
-    pub retry_max_attempts: Option<u32>,
-    pub retry_initial_delay_ms: Option<u64>,
-    pub retry_max_delay_ms: Option<u64>,
 }
 
 impl ConnectRoute {

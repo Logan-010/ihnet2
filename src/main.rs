@@ -100,9 +100,6 @@ async fn main() -> color_eyre::Result<()> {
                     tcp: forward.tcp,
                     udp: forward.udp,
                     auth: auth.clone(),
-                    retry_max_attempts: None,
-                    retry_initial_delay_ms: None,
-                    retry_max_delay_ms: None,
                 };
 
                 let r = match config.forward.take() {
@@ -179,9 +176,6 @@ async fn main() -> color_eyre::Result<()> {
                     tcp: forward.tcp,
                     udp: forward.udp,
                     auth: auth.clone(),
-                    retry_max_attempts: None,
-                    retry_initial_delay_ms: None,
-                    retry_max_delay_ms: None,
                 };
 
                 let r = match config.forward.take() {

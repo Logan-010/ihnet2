@@ -10,7 +10,7 @@ use iroh::{Endpoint, endpoint::Connection};
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
-    net::SocketAddr
+    net::SocketAddr,
 };
 use tokio::{
     io,
