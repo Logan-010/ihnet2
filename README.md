@@ -14,3 +14,7 @@ allows one computer to connect to another even behind a NAT & a private IP.
 
 Supports secure authentication (Argon2id based key-derivation) so not just
 anyone can connect to your ports.
+
+#TODO fix routing (client connects, sends id, udp/tcp, continue from there. not
+client connects, sends id, server sends tcp/udp packets) fix udp packet
+forwarding

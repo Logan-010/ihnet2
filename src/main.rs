@@ -74,36 +74,36 @@ async fn main() -> color_eyre::Result<()> {
 
                 config.save(cli.config.as_ref()).await?
             }
-        RouteCommand::Create {
-            address,
-            no_tcp,
-            no_udp,
-            auth,
-            copy,
-        } => {
-            let id: [u8; 32] = rand::random();
-            let id_str = hex::encode(id);
-
-            let forward = ForwardRoute {
-                id: id_str,
+            RouteCommand::Create {
                 address,
-                tcp: if no_tcp { Some(false) } else { None },
-                udp: if no_udp { Some(false) } else { None },
-                auth: auth.clone(),
-            };
+                no_tcp,
+                no_udp,
+                auth,
+                copy,
+            } => {
+                let id: [u8; 32] = rand::random();
+                let id_str = hex::encode(id);
 
-            let connect = ConnectRoute {
-                id: forward.id.clone(),
-                name: None,
-                public_key: config.key().context("Invalid identity")?.public(),
-                address: None,
-                tcp: forward.tcp,
-                udp: forward.udp,
-                auth: auth.clone(),
-                retry_max_attempts: None,
-                retry_initial_delay_ms: None,
-                retry_max_delay_ms: None,
-            };
+                let forward = ForwardRoute {
+                    id: id_str,
+                    address,
+                    tcp: if no_tcp { Some(false) } else { None },
+                    udp: if no_udp { Some(false) } else { None },
+                    auth: auth.clone(),
+                };
+
+                let connect = ConnectRoute {
+                    id: forward.id.clone(),
+                    name: None,
+                    public_key: config.key().context("Invalid identity")?.public(),
+                    address: None,
+                    tcp: forward.tcp,
+                    udp: forward.udp,
+                    auth: auth.clone(),
+                    retry_max_attempts: None,
+                    retry_initial_delay_ms: None,
+                    retry_max_delay_ms: None,
+                };
 
                 let r = match config.forward.take() {
                     Some(mut routes) => {
@@ -153,36 +153,36 @@ async fn main() -> color_eyre::Result<()> {
 
                 config.save(cli.config.as_ref()).await?
             }
-        RouteCommand::Export {
-            address,
-            no_tcp,
-            no_udp,
-            auth,
-            to,
-        } => {
-            let id: [u8; 32] = rand::random();
-            let id_str = hex::encode(id);
-
-            let forward = ForwardRoute {
-                id: id_str,
+            RouteCommand::Export {
                 address,
-                tcp: if no_tcp { Some(false) } else { None },
-                udp: if no_udp { Some(false) } else { None },
-                auth: auth.clone(),
-            };
+                no_tcp,
+                no_udp,
+                auth,
+                to,
+            } => {
+                let id: [u8; 32] = rand::random();
+                let id_str = hex::encode(id);
 
-            let connect = ConnectRoute {
-                id: forward.id.clone(),
-                name: None,
-                public_key: config.key().context("Invalid identity")?.public(),
-                address: None,
-                tcp: forward.tcp,
-                udp: forward.udp,
-                auth: auth.clone(),
-                retry_max_attempts: None,
-                retry_initial_delay_ms: None,
-                retry_max_delay_ms: None,
-            };
+                let forward = ForwardRoute {
+                    id: id_str,
+                    address,
+                    tcp: if no_tcp { Some(false) } else { None },
+                    udp: if no_udp { Some(false) } else { None },
+                    auth: auth.clone(),
+                };
+
+                let connect = ConnectRoute {
+                    id: forward.id.clone(),
+                    name: None,
+                    public_key: config.key().context("Invalid identity")?.public(),
+                    address: None,
+                    tcp: forward.tcp,
+                    udp: forward.udp,
+                    auth: auth.clone(),
+                    retry_max_attempts: None,
+                    retry_initial_delay_ms: None,
+                    retry_max_delay_ms: None,
+                };
 
                 let r = match config.forward.take() {
                     Some(mut routes) => {
