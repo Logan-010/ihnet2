@@ -1,0 +1,204 @@
+mod cli;
+mod config;
+mod net;
+mod util;
+
+use clap::Parser;
+use cli::{Cli, Command, RouteCommand};
+use color_eyre::eyre::ContextCompat;
+use config::{Config, ConnectRoute, ForwardRoute};
+use std::{collections::HashSet, path::PathBuf};
+use tokio::{fs, select, signal};
+use tokio_util::sync::CancellationToken;
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+
+#[tokio::main]
+async fn main() -> color_eyre::Result<()> {
+    color_eyre::install()?;
+
+    let cli = Cli::parse();
+
+    if let Err(e) = tracing_subscriber::registry()
+        .with(EnvFilter::new(&cli.logging))
+        .with(tracing_subscriber::fmt::layer())
+        .try_init()
+    {
+        eprintln!("Failed to initialize logger: {}", e);
+    }
+
+    let mut config = Config::load(cli.config.as_ref()).await?;
+    config.relay = config.relay.or(cli.relay);
+    config.address = config.address.or(cli.address);
+
+    match cli.command {
+        Command::Daemon => {
+            let cancel = CancellationToken::new();
+
+            tracing::info!(
+                "Starting daemon, public key {}",
+                config.key().context("Invalid identity")?.public()
+            );
+
+            let signal = signal::ctrl_c();
+            let task = net::task(config, cancel.child_token());
+
+            select! {
+                exit_res = signal => exit_res?,
+                task_res = task => task_res?
+            }
+
+            tracing::info!("Quitting...");
+
+            cancel.cancel();
+        }
+        Command::Route { command } => match *command {
+            RouteCommand::Add {
+                mut ticket,
+                address,
+                name,
+            } => {
+                ticket.address = address.or(ticket.address);
+                ticket.name = name.or(ticket.name);
+                let r = match config.connect.take() {
+                    Some(mut routes) => {
+                        routes.insert(ticket);
+                        routes
+                    }
+                    None => {
+                        let mut routes = HashSet::new();
+                        routes.insert(ticket);
+                        routes
+                    }
+                };
+                config.connect = Some(r);
+
+                config.save(cli.config.as_ref()).await?
+            }
+            RouteCommand::Create {
+                address,
+                tcp,
+                udp,
+                auth,
+                copy,
+            } => {
+                let id: [u8; 32] = rand::random();
+                let id_str = hex::encode(id);
+
+                let forward = ForwardRoute {
+                    id: id_str,
+                    address,
+                    tcp: if tcp { Some(true) } else { None },
+                    udp: if udp { Some(true) } else { None },
+                    auth: auth.clone(),
+                };
+
+                let connect = ConnectRoute {
+                    id: forward.id.clone(),
+                    name: None,
+                    public_key: config.key().context("Invalid identity")?.public(),
+                    address: None,
+                    tcp: forward.tcp,
+                    udp: forward.udp,
+                    auth: auth.clone(),
+                };
+
+                let r = match config.forward.take() {
+                    Some(mut routes) => {
+                        routes.insert(forward);
+                        routes
+                    }
+                    None => {
+                        let mut routes = HashSet::new();
+                        routes.insert(forward);
+                        routes
+                    }
+                };
+
+                config.forward = Some(r);
+                config.save(cli.config.as_ref()).await?;
+
+                util::display_and_copy(
+                    format!(
+                        "Run the following to add route:\n\t\"ihnet2 route add {}\"",
+                        connect.ticket()
+                    ),
+                    copy,
+                );
+            }
+            RouteCommand::Import {
+                path,
+                address,
+                name,
+            } => {
+                let data = fs::read(path).await?;
+                let mut route = ConnectRoute::decode(data)?;
+
+                route.name = name.or(route.name);
+                route.address = address.or(route.address);
+                let r = match config.connect.take() {
+                    Some(mut routes) => {
+                        routes.insert(route);
+                        routes
+                    }
+                    None => {
+                        let mut routes = HashSet::new();
+                        routes.insert(route);
+                        routes
+                    }
+                };
+                config.connect = Some(r);
+
+                config.save(cli.config.as_ref()).await?
+            }
+            RouteCommand::Export {
+                address,
+                tcp,
+                udp,
+                auth,
+                to,
+            } => {
+                let id: [u8; 32] = rand::random();
+                let id_str = hex::encode(id);
+
+                let forward = ForwardRoute {
+                    id: id_str,
+                    address,
+                    tcp: if tcp { Some(true) } else { None },
+                    udp: if udp { Some(true) } else { None },
+                    auth: auth.clone(),
+                };
+
+                let connect = ConnectRoute {
+                    id: forward.id.clone(),
+                    name: None,
+                    public_key: config.key().context("Invalid identity")?.public(),
+                    address: None,
+                    tcp: forward.tcp,
+                    udp: forward.udp,
+                    auth: auth.clone(),
+                };
+
+                let r = match config.forward.take() {
+                    Some(mut routes) => {
+                        routes.insert(forward);
+                        routes
+                    }
+                    None => {
+                        let mut routes = HashSet::new();
+                        routes.insert(forward);
+                        routes
+                    }
+                };
+
+                config.forward = Some(r);
+                config.save(cli.config.as_ref()).await?;
+
+                let path = to.unwrap_or_else(|| PathBuf::from("route.yaml"));
+                let data = connect.encode()?;
+                fs::write(path, data).await?;
+            }
+        },
+    }
+
+    Ok(())
+}
